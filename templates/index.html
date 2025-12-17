@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Freshness Auditor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="glass-container">
+        <header>
+            <h1>Content Freshness Auditor</h1>
+            <p>Detect Information Decay with AI Precision</p>
+        </header>
+
+        <main>
+            <!-- Input Section -->
+            <div class="input-section">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('url')">Audit URL</button>
+                    <button class="tab-btn" onclick="switchTab('text')">Paste Content</button>
+                </div>
+
+                <div id="url-input-container" class="input-group">
+                    <input type="text" id="url-input" placeholder="https://example.com/blog-post">
+                </div>
+                
+                <div id="text-input-container" class="input-group hidden">
+                    <textarea id="text-input" placeholder="Paste your article content here..."></textarea>
+                </div>
+
+                <button id="audit-btn" onclick="runAudit()">
+                    <span id="btn-text">Run Audit</span>
+                    <span id="btn-loader" class="hidden">Thinking...</span>
+                </button>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-area" class="results-container hidden">
+                <div class="score-card">
+                    <div class="score-circle">
+                        <span id="decay-score">0</span>
+                        <label>Decay Score</label>
+                    </div>
+                    <div class="status-info">
+                        <h2 id="status-text">Pending</h2>
+                        <p id="reasoning-text">Analysis pending...</p>
+                        <div class="suggestion-box">
+                            <strong>Quick Fix:</strong> <span id="suggestion-text"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="content-viewer">
+                    <h3>Content Analysis <span class="badge">Reader View</span></h3>
+                    <div id="highlighted-content" class="text-display"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let currentMode = 'url';
+
+        function switchTab(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.tab-btn[onclick="switchTab('${mode}')"]`).classList.add('active');
+            
+            if (mode === 'url') {
+                document.getElementById('url-input-container').classList.remove('hidden');
+                document.getElementById('text-input-container').classList.add('hidden');
+            } else {
+                document.getElementById('url-input-container').classList.add('hidden');
+                document.getElementById('text-input-container').classList.remove('hidden');
+            }
+        }
+
+        async function runAudit() {
+            const btn = document.getElementById('audit-btn');
+            const loader = document.getElementById('btn-loader');
+            const btnText = document.getElementById('btn-text');
+            const resultsArea = document.getElementById('results-area');
+            
+            // UI State: Loading
+            btn.disabled = true;
+            btnText.classList.add('hidden');
+            loader.classList.remove('hidden');
+            resultsArea.classList.add('hidden');
+
+            const payload = {};
+            if (currentMode === 'url') {
+                payload.url = document.getElementById('url-input').value;
+            } else {
+                payload.text = document.getElementById('text-input').value;
+            }
+
+            try {
+                const response = await fetch('/audit', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    renderResults(data);
+                }
+            } catch (e) {
+                alert('Network error occurred.');
+            } finally {
+                btn.disabled = false;
+                btnText.classList.remove('hidden');
+                loader.classList.add('hidden');
+            }
+        }
+
+        function renderResults(data) {
+            const result = data.result;
+            const fullText = data.full_text;
+            
+            document.getElementById('results-area').classList.remove('hidden');
+            
+            // Update Stats
+            document.getElementById('decay-score').innerText = result.decay_score;
+            document.getElementById('status-text').innerText = result.status;
+            document.getElementById('status-text').style.color = getStatusColor(result.status);
+            document.getElementById('reasoning-text').innerText = result.reasoning;
+            document.getElementById('suggestion-text').innerText = result.update_suggestion;
+            
+            // Render Highlights
+            // We need to escape HTML first specifically to avoid XSS, but then apply highlights
+            // For simplicity in this v1, we will do string replacement on the raw text
+            // Note: This is fragile if text repeats, but sufficient for v1.
+            
+            let htmlContent = escapeHtml(fullText).replace(/\n/g, '<br>');
+            
+            result.flagged_phrases.forEach(phrase => {
+                const safePhrase = escapeHtml(phrase);
+                // Create a regex to replace global occurrences, case insensitive possibly?
+                // The prompt asks for EXACT substring, so we stick to that.
+                // We wrap it in a span with tooltip
+                
+                // Warning: simple replace might break if phrase contains HTML special chars that we just escaped.
+                // We'll trust the LLM sends back clean text segments that match our escaped text logic mostly.
+                
+                const highlightHtml = `<span class="highlight decay-high" title="Outdated info detected">${safePhrase}</span>`;
+                htmlContent = htmlContent.split(safePhrase).join(highlightHtml); // Global replace
+            });
+            
+            document.getElementById('highlighted-content').innerHTML = htmlContent;
+        }
+
+        function getStatusColor(status) {
+            if (status.toLowerCase() === 'green') return '#4ade80';
+            if (status.toLowerCase() === 'yellow') return '#facc15';
+            return '#f87171';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
